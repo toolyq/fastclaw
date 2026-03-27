@@ -3,7 +3,7 @@ setlocal enabledelayedexpansion
 
 :: Check for Go
 where go >nul 2>nul
-if %ERRORLEVEL% neq 0 (
+if !ERRORLEVEL! neq 0 (
     echo Error: Go is not installed or not in PATH.
     exit /b 1
 )
@@ -15,7 +15,7 @@ set DATE=unknown
 
 :: Try to update them using git
 where git >nul 2>nul
-if %ERRORLEVEL% equ 0 (
+if !ERRORLEVEL! equ 0 (
     for /f "tokens=*" %%i in ('git describe --tags --always --dirty') do set VERSION=%%i
     for /f "tokens=*" %%i in ('git rev-parse --short HEAD') do set COMMIT=%%i
     for /f "tokens=*" %%i in ('powershell -Command "Get-Date -UFormat '%%Y-%%m-%%dT%%H:%%M:%%SZ'"') do set DATE=%%i
@@ -32,27 +32,35 @@ echo.
 
 :: Build web frontend if needed
 echo [1/3] Building web frontend...
-if not exist "web\out" (
-    where pnpm >nul 2>nul
-    if %ERRORLEVEL% neq 0 (
-        echo Error: pnpm is required for frontend build but not found.
-        exit /b 1
-    )
-    pushd web
-    call pnpm install --frozen-lockfile
-    call pnpm build
-    popd
-) else (
+
+:: If web/out exists, skip frontend build
+if exist "web\out" (
     echo   (Web output already exists, skipping frontend build)
+    goto :PREPARE_FILES
 )
 
+:: 1. 进入 web 目录
+cd web
+:: 2. 安装依赖（如果没安装过）
+npm install
+:: 3. 运行编译
+npm run build
+
+cd ..
+
+:PREPARE_FILES
 :: Prepare embedded files
 echo [2/3] Preparing embedded files...
-if exist "internal\setup\web" (
-    rd /s /q "internal\setup\web"
+if not exist "web\out" (
+    echo Error: web\out not found.
+    exit /b 1
 )
+
+:: Use a temporary directory to avoid xcopy issues with existing dirs
+if exist "internal\setup\web" rd /s /q "internal\setup\web"
 mkdir "internal\setup\web"
 xcopy /e /i /y "web\out" "internal\setup\web" >nul
+
 
 :: Compile the binary
 echo [3/3] Compiling Go binary (win64)...
@@ -65,7 +73,7 @@ set GOARCH=amd64
 
 go build -ldflags "%LDFLAGS%" -o bin\fastclaw.exe ./cmd/fastclaw
 
-if %ERRORLEVEL% equ 0 (
+if !ERRORLEVEL! equ 0 (
     echo.
     echo ========================================
     echo Success! Binary is located at bin\fastclaw.exe
